@@ -21,6 +21,15 @@ class SuperPosition(ABC, Generic[E]):
 
     def get(self) -> E|None:
         return self.value
+    
+    @abstractmethod
+    def copy(self) -> SuperPosition[E]:
+        pass
+
+    def collapse_to(self, value: E|None) -> None:
+        self.value = value
+        self.is_collapsed = True
+
 
 class SuperList(SuperPosition[E]):
     def __init__(self, values: list[E]) -> None:
@@ -39,13 +48,20 @@ class SuperList(SuperPosition[E]):
     def collapse(self, rnd: Random) -> None:
         if self.is_collapsed:
             return
-        self.is_collapsed = True
-        self.value = rnd.choices(self.values, weights=self._get_prob())[0] if self.is_valid() else None
+        self.collapse_to(rnd.choices(self.values, weights=self._get_prob())[0] if self.is_valid() else None)
     
     def remove(self, value: E):
         assert value in self.values
         self.possible[self.values.index(value)] = False
 
+    def copy(self) -> SuperList:
+        s = SuperList(self.values)
+        s.possible = dict([(val, p) for val, p in self.possible.items()])
+        s.weights = dict([(val, w) for val, w in self.weights.items()])
+        s.value = self.value
+        s.is_collapsed = self.is_collapsed
+        return s
+    
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SuperList) and self.type == other.type:
             if self.is_collapsed and other.is_collapsed:
@@ -82,14 +98,22 @@ class SuperRange(SuperPosition[int]):
     def is_valid(self) -> bool:
         return self.min <= self.max
     
+    def collapse_to(self, value: int|None) -> None:
+        super().collapse_to(value)
+        if value is not None:
+            self.min = value
+            self.max = value
+    
     def collapse(self, rnd: Random) -> None:
         if self.is_collapsed:
             return
-        self.is_collapsed = True
-        self.value = rnd.randint(self.min, self.max) if self.is_valid() else None
-        if self.value is not None:
-            self.min = self.value
-            self.max = self.value
+        self.collapse_to(rnd.randint(self.min, self.max) if self.is_valid() else None)
+    
+    def copy(self) -> SuperRange:
+        s = SuperRange(self.min, self.max)
+        s.value = self.value
+        s.is_collapsed = self.is_collapsed
+        return s
 
     def __gt__(self, other: SuperRange|int) -> bool:
         if isinstance(other, SuperRange):
@@ -156,8 +180,13 @@ class SuperStr(SuperPosition[str]):
         return True
     
     def collapse(self, rnd: Random) -> None:
-        self.is_collapsed = True
-        self.value = get_random_str(rnd)
+        self.collapse_to(get_random_str(rnd))
+    
+    def copy(self) -> SuperPosition[str]:
+        s = SuperStr()
+        s.value = self.value
+        s.is_collapsed = self.is_collapsed
+        return s
     
     def __str__(self) -> str:
         if self.is_collapsed:

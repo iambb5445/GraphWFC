@@ -1,0 +1,18 @@
+.max_age 100
+
+nodes {
+    person {
+        name <str>
+        gender [male, female]
+        age (0, .max_age)
+        hair_color [brown, red, black, blonde]
+        eye_color [brown, blue, green]
+    }
+}
+
+edges {
+    friend {
+        person f to person x
+        f.eye_color == x.eye_color
+    }
+}

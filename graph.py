@@ -1,23 +1,95 @@
 from __future__ import annotations
 from typing import Callable
-from superposition import SuperPosition
+from random import Random
+from superposition import SuperPosition, SuperRange, SuperList
 
 NodeSchema = dict[str, Callable[[], SuperPosition]]
 
 class Node:
-    def __init__(self, schema: NodeSchema):
+    def __init__(self, node_type: str, schema: NodeSchema, index: int):
         self.properties: dict[str, SuperPosition] = {}
         for name, factory in schema.items():
             self.properties[name] = factory()
+        self.type = node_type
+        self.index = index
     
-    def get(self, property_name: str) -> SuperPosition:
-        return self.properties[property_name]
+    def is_collapsed(self):
+        return all(val.is_collapsed for val in self.properties.values())
+    
+    def collapse_once(self, rnd: Random) -> bool:
+        not_collapsed = [val for val in self.properties.values() if not val.is_collapsed]
+        if len(not_collapsed) == 0:
+            return False
+        rnd.choice(not_collapsed).collapse(rnd)
+        return True
+    
+    def collapse_all(self, rnd: Random, shuffle: bool):
+        not_collapsed = [val for val in self.properties.values() if not val.is_collapsed]
+        if shuffle:
+            rnd.shuffle(not_collapsed)
+        for prop in not_collapsed:
+            prop.collapse(rnd)
+    
+    def test_list_prop(self, prop_name: str, from_node: Node, to_node: Node, edge_schema: EdgeSchema) -> bool:
+        changed = False
+        prop = self.properties[prop_name]
+        assert isinstance(prop, SuperList)
+        self.properties[prop_name] = prop.copy()
+        for val in prop.values:
+            if prop.possible[val]:
+                self.properties[prop_name].collapse_to(val)
+                if not edge_schema.condition(from_node, to_node):
+                    prop.possible[val] = False
+                    changed = True
+        self.properties[prop_name] = prop
+        return changed
+    
+    def test_range_prop(self, prop_name: str, from_node: Node, to_node: Node, edge_schema: EdgeSchema) -> bool:
+        changed = False
+        prop = self.properties[prop_name]
+        assert isinstance(prop, SuperRange)
+        self.properties[prop_name] = prop.copy()
+        valid = False
+        # TODO we can use binary search hear, assuming that range conditions always result in range
+        for val in range(prop.min, prop.max+1):
+            self.properties[prop_name].collapse_to(val)
+            good = edge_schema.condition(from_node, to_node)
+            if valid == False and good:
+                if prop.min != val:
+                    changed = True
+                prop.min = val
+                valid = True
+            elif valid == True and not good:
+                prop.max = val - 1
+                changed = True
+                break
+        if not valid:
+            prop.min = prop.max + 1
+        self.properties[prop_name] = prop
+        return changed
+
+    def update(self, from_node: Node, to_node: Node, edge_schema: EdgeSchema):
+        changed = False
+        for prop_name, prop in self.properties.items():
+            if prop_name in edge_schema.condition_str and not prop.is_collapsed:
+                if isinstance(prop, SuperList):
+                    changed = changed or self.test_list_prop(prop_name, from_node, to_node, edge_schema)
+                elif isinstance(prop, SuperRange):
+                    changed = changed or self.test_range_prop(prop_name, from_node, to_node, edge_schema)
+        return changed
 
     def __str__(self) -> str:
         new_line = "\n\t"
-        return f"Node(\n\t{new_line.join([f'{prop}: {value}' for prop, value in self.properties.items()])}\n)"
+        return f"Node[{self.index}](\n\t{new_line.join([f'{prop}: {value}' for prop, value in self.properties.items()])}\n)"
 
-EdgeSchema =  tuple[str, str, Callable[[Node, Node], bool], bool]
+class EdgeSchema:
+    def __init__(self, to_type: str, from_type: str, condition: Callable[[Node, Node], bool], bidirectional: bool, loops_allowed: bool, condition_str: str) -> None:
+        self.to_type = to_type
+        self.from_type = from_type
+        self.condition = condition
+        self.bidirectional = bidirectional
+        self.loops_allowed = loops_allowed
+        self.condition_str = condition_str
 
 class Edge:
     def __init__(self, from_type: str, to_type: str, from_index: int, to_index: int, graph: Graph) -> None:
@@ -38,16 +110,66 @@ class Graph:
                  node_schema: dict[str, NodeSchema],
                  edge_schema: dict[str, EdgeSchema]):
         self.nodes: dict[str, list[Node]] = {}
-        self.edges: dict[str, list[Edge]] = {}
+        self.edges: dict[str, dict[Node, set[Node]]] = {}
         for name in node_schema.keys():
             self.nodes[name] = []
         for name in edge_schema.keys():
-            self.edges[name] = []
+            self.edges[name] = {}
         self.node_schema = node_schema
         self.edge_schema = edge_schema
     
     def add_nodes(self, count: int, node_type: str):
-        self.nodes[node_type] += [Node(self.node_schema[node_type]) for _ in range(count)]
+        self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type])) for i in range(count)]
+    
+    def select_node(self, rnd: Random, nodes: list[Node]) -> Node:
+        return rnd.choice(nodes)
+    
+    def consider(self, edge_name: str, u: Node, v: Node, rnd: Random, prob: float):
+        if u == v: return
+        schema = self.edge_schema[edge_name]
+        assert u.type == schema.from_type, v.type == schema.to_type
+        if schema.condition(u, v) and rnd.random() < prob:
+            self.edges[edge_name][u] = self.edges[edge_name].get(u, set())
+            self.edges[edge_name][u].add(v)
+    
+    def collapse_edges(self, node: Node, rnd: Random, prob: float=0.1): # TODO how should I handle probability?
+        for edge_name, schema in self.edge_schema.items():
+            # TODO bidirectional, loop, etc.
+            if schema.from_type == node.type:
+                for other in self.nodes[schema.to_type]:
+                    self.consider(edge_name, node, other, rnd, prob)
+            # if schema.to_type == node.type:
+            #     for other in self.nodes[schema.from_type]:
+            #         self.consider(edge_name, other, node, rnd, prob)
+    
+    def propagate(self, node: Node):
+        # TODO should I only update connected nodes? can things like LCA affect further away nodes?
+        # TODO should I only update nodes? what about possible edges?
+        # TODO should I keep flag? Or readd things to queue if they keep on changing?
+        # TODO should I update both from and to?
+        q: list[Node] = [node]
+        flag: set[Node] = set([node])
+        while len(q) > 0:
+            u = q.pop(0)
+            for edge_type, edges in self.edges.items():
+                for v in edges.get(u, set()):
+                    if not v in flag and v.update(u, v, self.edge_schema[edge_type]):
+                        q.append(v)
+                        flag.add(v)
+                        # u.update(u, v, self.edge_schema[edge_type])
+    
+    def collapse(self, rnd: Random, verbose: int):
+        all_nodes = [node for nodes in self.nodes.values() for node in nodes]
+        while len(all_nodes) > 0:
+            node = self.select_node(rnd, all_nodes)
+            node.collapse_all(rnd, False)
+            self.collapse_edges(node, rnd)
+            self.propagate(node)
+            all_nodes.remove(node)
+            if verbose > 0:
+                print(self)
+                print("********************")
     
     def __str__(self) -> str:
-        return "\n".join(["\n".join([f"{name} {node}" for node in nodes]) for name, nodes in self.nodes.items()])
+        return "\n".join(["\n".join([f"{name} {node}" for node in nodes]) for name, nodes in self.nodes.items()]) + "\n" + \
+            "\n".join(["\n".join([f"{name} {node.index} [{', '.join([str(other.index) for other in others])}]" for node, others in edges.items()]) for name, edges in self.edges.items()])

@@ -1,0 +1,32 @@
+.max_age 100
+.min_parent_age_diff 18
+
+nodes {
+    person {
+        name <str>
+        gender [male, female]
+        age (0, .max_age)
+        hair_color [brown, red, black, blonde]
+        eye_color [brown, blue, green]
+    }
+}
+
+edges {
+    father {
+        person f to person x
+        f.gender == 'male'
+        f.age > x.age + .min_parent_age_diff
+    }
+    mother {
+        person m to person x
+        m.gender == 'female'
+        m.age > x.age + .min_parent_age_diff
+    }
+}
+
+global {
+    for every person p: {
+        father.to.p.degree <= 1
+        mother.to.p.degree <= 1
+    }
+}

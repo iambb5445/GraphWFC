@@ -112,9 +112,11 @@ class Parser:
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> Condition:
         def cond(u: Node, v: Node):
             globals = {}
+            globals['min'] = min
+            globals['max'] = max
+            # TODO dist, lca
             globals[from_var] = type(from_type, (), u.properties)
             globals[to_var] = type(to_type, (), v.properties)
-            print(s, globals)
             return eval(s, globals)
         return cond
 
@@ -139,17 +141,20 @@ class Parser:
             assert from_type in node_names, f"Unrecognizable node type {from_type} in edge definition {edge_name}: {var_def}"
             assert to_type in node_names, f"Unrecognizable node type {to_type} in edge definition {edge_name}: {var_def}"
             bidirectional = False
+            loops_allowed = False
             conds: list[Condition] = []
             fors, the_rest = Parser.extract_fors("\n".join(definition.splitlines()[1:]))
             for line in the_rest.splitlines():
                 line = line.strip()
                 if line == "bidirectional":
                     bidirectional = True
+                if line == "loops_allowed":
+                    loops_allowed = True
                 else:
                     conds.append(Parser.parse_condition(line, from_type, to_type, from_var, to_var))
             for iter, body in fors:
                 conds.append(Parser.parse_for_condition(iter, body))
-            edge_schema[edge_name] = (from_type, to_type, Parser.merge_conditions(conds), bidirectional)
+            edge_schema[edge_name] = EdgeSchema(from_type, to_type, Parser.merge_conditions(conds), bidirectional, loops_allowed, definition)
         return edge_schema
     
     @staticmethod
@@ -160,15 +165,15 @@ class Parser:
         blocks, s = Parser.extract_blocks(s)
         node_schema = Parser.parse_nodes(blocks["nodes"])
         edge_schema = Parser.parse_edges(blocks["edges"], list(node_schema.keys()))
-        g = Graph(node_schema, edge_schema)
-        g.add_nodes(5, "person")
-        g.add_nodes(2, "location")
-        print(g.edge_schema["father"][2](g.nodes["person"][0], g.nodes["person"][1]))
-        # print(g)
+        return Graph(node_schema, edge_schema)
     
     @staticmethod
     def from_file(file_name: str):
         with open(file_name, "r") as f:
-            Parser.parse(f.read())
+            return Parser.parse(f.read())
 
-Parser.from_file("description.gwfc")
+from random import Random
+g = Parser.from_file("smaller.gwfc")
+g.add_nodes(7, "person")
+g.collapse(Random(42), 0)
+print(g)
