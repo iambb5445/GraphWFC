@@ -107,38 +107,22 @@ class Parser:
                     return False
             return True
         return cond
-    
-    @staticmethod
-    def parse_condition_component(s: str) -> Callable[[Node, Node], int]:
-        def get(u: Node, v: Node):
-            # TODO
-            return 1
-        return get
 
     @staticmethod
-    def parse_condition(s: str) -> Condition:
-        print(s)
-        ops: dict[str, Callable[[int, int], bool]] = {
-            "==": lambda a, b: a == b,
-            "<": lambda a, b: a < b,
-            ">": lambda a, b: a > b,
-            "<=": lambda a, b: a <= b,
-            ">=": lambda a, b: a >= b,
-        }
-        for op, exec in ops.items():
-            if op in s:
-                left, right = s.split(op)
-                left = Parser.parse_condition_component(left.strip())
-                right = Parser.parse_condition_component(right.strip())
-                def cond(u: Node, v: Node):
-                    return exec(left(u, v), right(u, v))
-                return cond
-        raise Exception(f"Condition does not include any operator: {s}")
+    def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> Condition:
+        def cond(u: Node, v: Node):
+            globals = {}
+            globals[from_var] = type(from_type, (), u.properties)
+            globals[to_var] = type(to_type, (), v.properties)
+            print(s, globals)
+            return eval(s, globals)
+        return cond
 
     @staticmethod
     def parse_for_condition(iter: str, body: str) -> Condition:
         # print(iter, "-", body)
-        Parser.parse_condition(body)
+        # Parser.parse_condition(body)
+        # TODO
         def cond(u: Node, v: Node):
             return True
         return cond
@@ -162,7 +146,7 @@ class Parser:
                 if line == "bidirectional":
                     bidirectional = True
                 else:
-                    conds.append(Parser.parse_condition(line))
+                    conds.append(Parser.parse_condition(line, from_type, to_type, from_var, to_var))
             for iter, body in fors:
                 conds.append(Parser.parse_for_condition(iter, body))
             edge_schema[edge_name] = (from_type, to_type, Parser.merge_conditions(conds), bidirectional)
@@ -179,6 +163,7 @@ class Parser:
         g = Graph(node_schema, edge_schema)
         g.add_nodes(5, "person")
         g.add_nodes(2, "location")
+        print(g.edge_schema["father"][2](g.nodes["person"][0], g.nodes["person"][1]))
         # print(g)
     
     @staticmethod

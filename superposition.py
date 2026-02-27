@@ -94,29 +94,57 @@ class SuperRange(SuperPosition[int]):
     def __gt__(self, other: SuperRange|int) -> bool:
         if isinstance(other, SuperRange):
             return self.max > other.min
-        return self.max > other
+        if isinstance(other, int):
+            return self.max > other
+        raise Exception(f"Cannot compare SuperRange with type {type(other)}")
     
     def __lt__(self, other: SuperRange|int) -> bool:
         if isinstance(other, SuperRange):
             return self.min < other.max
-        return self.min < other
+        if isinstance(other, int):
+            return self.min < other
+        raise Exception(f"Cannot compare SuperRange with type {type(other)}")
     
     def __ge__(self, other: SuperRange|int) -> bool:
         if isinstance(other, SuperRange):
             return self.max >= other.min
-        return self.max >= other
+        if isinstance(other, int):
+            return self.max >= other
+        raise Exception(f"Cannot compare SuperRange with type {type(other)}")
     
     def __le__(self, other: SuperRange|int) -> bool:
         if isinstance(other, SuperRange):
             return self.min <= other.max
-        return self.min <= other
+        if isinstance(other, int):
+            return self.min <= other
+        raise Exception(f"Cannot compare SuperRange with type {type(other)}")
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SuperRange):
             return other.min <= self.max and other.max >= self.min
         if isinstance(other, int):
             return other >= self.min and other <= self.max
-        raise Exception(f"Cannot compare SuperRange with {type(other)}")
+        raise Exception(f"Cannot compare SuperRange with type {type(other)}")
+
+    def __add__(self, other: int|SuperRange) -> SuperRange:
+        if isinstance(other, SuperRange):
+            return SuperRange(self.min + other.min, self.max + other.max)
+        elif isinstance(other, int):
+            return SuperRange(self.min + other, self.max + other)
+        raise Exception(f"Cannot add SuperRange to type {type(other)}")
+
+    def __radd__(self, other: int|SuperRange) -> SuperRange:
+        return self.__add__(other)
+    
+    def __mul__(self, other: int) -> SuperRange:
+        if isinstance(other, int):
+            return SuperRange(self.min * other, self.max * other)
+        raise Exception(f"Cannot mult SuperRange by type {type(other)}")
+
+    def __rmul__(self, other: int) -> SuperRange:
+        return self.__mul__(other)
+    
+    # TODO __sub__, __rsub__, __truediv__, __rtruediv__
     
     def __str__(self) -> str:
         if self.is_collapsed:

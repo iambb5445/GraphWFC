@@ -21,14 +21,14 @@ nodes {
 edges {
     father {
         person f to person x
-        f.gender == male
+        f.gender == 'male'
         f.age > x.age + .min_parent_age_diff
         f.age < x.age + .max_parent_age_diff
         for every mother.to.x m: { min(dist(lca(m, f), f), dist(lca(m, f), m)) > .parent_lca_dist }
     }
     mother {
         person m to person x
-        m.gender == female
+        m.gender == 'female'
         m.age > x.age + .min_parent_age_diff
         m.age < x.age + .max_parent_age_diff
         for every father.to.x f: { min(dist(lca(m, f), f), dist(lca(m, f), m)) > .parent_lca_dist }
