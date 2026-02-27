@@ -1,0 +1,189 @@
+from __future__ import annotations
+import re
+from typing import Callable
+from graph import NodeSchema, EdgeSchema, Graph, Node
+from superposition import SuperList, SuperRange, SuperStr
+
+Condition = Callable[[Node, Node], bool]
+
+class Parser:
+    @staticmethod
+    def parse_int(s: str) -> int:
+        value = s.strip()
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def extract_consts(s: str):
+        consts: dict[str, str] = {}
+        VAR_PATTERN = re.compile(r'^\.\w+\s+.+$', re.MULTILINE)
+        def extract_and_replace(match: re.Match[str]):
+            line = match.group(0)
+            name, value = line.split(maxsplit=1)
+            consts[name[1:]] = value
+            return ""
+        cleaned_text = VAR_PATTERN.sub(extract_and_replace, s)
+        return consts, cleaned_text
+    
+    @staticmethod
+    def extract_blocks(s: str):
+        blocks: dict[str, str] = {}
+        to_remove: list[tuple[int, int]] = []
+        HEADER_PATTERN = re.compile(r'(\w+)\s*\{')
+        for match in HEADER_PATTERN.finditer(s):
+            header = match.group(1)
+            start = match.end()
+            if len(to_remove) > 0 and to_remove[-1][1] > start:
+                continue
+            count = 1
+            assert header not in blocks, f"Multiple definitions for {header}"
+            blocks[header] = ""
+            for i in range(start, len(s)):
+                if s[i] == "{": count += 1
+                if s[i] == "}": count -= 1
+                if count == 0:
+                    blocks[header] = s[start:i-1].strip()
+                    to_remove.append((match.start(), i))
+                    break
+        for start, end in reversed(to_remove):
+            s = s[:start] + s[end+1:]
+        return blocks, s.strip()
+    
+    @staticmethod
+    def extract_fors(s: str):
+        fors: list[tuple[str, str]] = []
+        to_remove: list[tuple[int, int]] = []
+        FOR_PATTERN = re.compile(r'''
+            for\s+every\s+
+            (?P<decls>
+                (?:[A-Za-z_][\w\.]*\s+[A-Za-z_]\w*
+                (?:\s*,\s*[A-Za-z_][\w\.]*\s+[A-Za-z_]\w*)*)
+            )
+            \s*:\s*
+            \{
+                (?P<body>[^{}]*)
+            \}
+        ''', re.VERBOSE | re.DOTALL)
+        for match in FOR_PATTERN.finditer(s):
+            fors.append((match.group("decls").strip(), match.group("body").strip()))
+            to_remove.append((match.start(), match.end()))
+        for start, end in reversed(to_remove):
+            s = s[:start] + s[end+1:]
+        return fors, s.strip()
+    
+    @staticmethod
+    def parse_nodes(s: str) -> dict[str, NodeSchema]:
+        node_schemas: dict[str, NodeSchema] = {}
+        node_types, s = Parser.extract_blocks(s)
+        assert len(s) == 0, f"Unrecognizable text in node definitions: {s}"
+        for node_name, prop_definitions in node_types.items():
+            lines = [line.strip() for line in prop_definitions.splitlines()]
+            schema: NodeSchema = {}
+            node_schemas[node_name] = schema
+            for line in lines:
+                prop, prop_def = line.split(maxsplit=1)
+                range_match = re.compile(r'^\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*$').match(prop_def)
+                if prop_def == '<str>':
+                    schema[prop] = lambda: SuperStr()
+                elif prop_def[0] == '[' and prop_def[-1] == ']':
+                    values: list[str] = [value.strip() for value in prop_def[1:-1].split(',')]
+                    schema[prop] = (lambda v: lambda: SuperList(v))(values) # pure magic
+                    # schema[prop] = lambda v=values: SuperList(v) another possible solution
+                elif range_match is not None:
+                    start = int(range_match.group(1))
+                    end = int(range_match.group(2))
+                    schema[prop] = lambda start=start, end=end: SuperRange(start, end)
+                else:
+                    raise Exception(f"ERROR: unknown property definition {prop_def}")
+        return node_schemas
+
+    @staticmethod
+    def merge_conditions(conditions: list[Condition]) -> Condition:
+        def cond(u: Node, v: Node):
+            for condition in conditions:
+                if not condition(u, v):
+                    return False
+            return True
+        return cond
+    
+    @staticmethod
+    def parse_condition_component(s: str) -> Callable[[Node, Node], int]:
+        def get(u: Node, v: Node):
+            # TODO
+            return 1
+        return get
+
+    @staticmethod
+    def parse_condition(s: str) -> Condition:
+        print(s)
+        ops: dict[str, Callable[[int, int], bool]] = {
+            "==": lambda a, b: a == b,
+            "<": lambda a, b: a < b,
+            ">": lambda a, b: a > b,
+            "<=": lambda a, b: a <= b,
+            ">=": lambda a, b: a >= b,
+        }
+        for op, exec in ops.items():
+            if op in s:
+                left, right = s.split(op)
+                left = Parser.parse_condition_component(left.strip())
+                right = Parser.parse_condition_component(right.strip())
+                def cond(u: Node, v: Node):
+                    return exec(left(u, v), right(u, v))
+                return cond
+        raise Exception(f"Condition does not include any operator: {s}")
+
+    @staticmethod
+    def parse_for_condition(iter: str, body: str) -> Condition:
+        # print(iter, "-", body)
+        def cond(u: Node, v: Node):
+            return True
+        return cond
+    
+    @staticmethod
+    def parse_edges(s: str, node_names: list[str]) -> dict[str, EdgeSchema]:
+        edge_schema: dict[str, EdgeSchema] = {}
+        edge_types, s = Parser.extract_blocks(s)
+        assert len(s) == 0, f"Unrecognizable text in edge definitions: {s}"
+        for edge_name, definition in edge_types.items():
+            var_def = definition.splitlines()[0].strip()
+            from_type, from_var, to, to_type, to_var = var_def.split()
+            assert to == "to", f"Unrecognizable edge definition for {edge_name}: {var_def}"
+            assert from_type in node_names, f"Unrecognizable node type {from_type} in edge definition {edge_name}: {var_def}"
+            assert to_type in node_names, f"Unrecognizable node type {to_type} in edge definition {edge_name}: {var_def}"
+            print(edge_name)
+            bidirectional = False
+            conds: list[Condition] = []
+            fors, the_rest = Parser.extract_fors("\n".join(definition.splitlines()[1:]))
+            for line in the_rest.splitlines():
+                line = line.strip()
+                if line == "bidirectional":
+                    bidirectional = True
+                else:
+                    conds.append(Parser.parse_condition(line))
+            for iter, body in fors:
+                conds.append(Parser.parse_for_condition(iter, body))
+            edge_schema[edge_name] = (from_type, to_type, Parser.merge_conditions(conds), bidirectional)
+        return edge_schema
+    
+    @staticmethod
+    def parse(s: str):
+        consts, s = Parser.extract_consts(s)
+        for key, val in consts.items():
+            s = s.replace(f".{key}", val)
+        blocks, s = Parser.extract_blocks(s)
+        node_schema = Parser.parse_nodes(blocks["nodes"])
+        edge_schema = Parser.parse_edges(blocks["edges"], list(node_schema.keys()))
+        g = Graph(node_schema, edge_schema)
+        g.add_nodes(5, "person")
+        g.add_nodes(2, "location")
+        # print(g)
+    
+    @staticmethod
+    def from_file(file_name: str):
+        with open(file_name, "r") as f:
+            Parser.parse(f.read())
+
+Parser.from_file("description.gwfc")
