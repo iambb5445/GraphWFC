@@ -25,15 +25,16 @@ class SuperPosition(ABC, Generic[E]):
 class SuperList(SuperPosition[E]):
     def __init__(self, values: list[E]) -> None:
         super().__init__()
-        self.values: list[E] = values
-        self.possible: list[bool] = [True for _ in self.values]
-        self.weights: list[float] = [1 for _ in self.values]
+        self.values = [value for value in values]
+        self.possible: dict[E, bool] = dict([(value, True) for value in self.values])
+        self.weights: dict[E, float] = dict([(value, 1.0) for value in self.values])
+        self.type: Type[E] = type(values[0])
     
     def is_valid(self) -> bool:
         return sum(self._get_prob()) > 0
 
     def _get_prob(self) -> list[float]:
-        return uniform([w if p else 0 for p, w in zip(self.possible, self.weights)])
+        return uniform([self.weights[value] if self.possible[value] else 0 for value in self.values])
     
     def collapse(self, rnd: Random) -> None:
         if self.is_collapsed:
@@ -44,6 +45,25 @@ class SuperList(SuperPosition[E]):
     def remove(self, value: E):
         assert value in self.values
         self.possible[self.values.index(value)] = False
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SuperList) and self.type == other.type:
+            if self.is_collapsed and other.is_collapsed:
+                return self.value == other.value and self.value is not None
+            if self.is_collapsed:
+                return other.possible.get(self.value, False)
+            if other.is_collapsed and isinstance(other.value, self.type): # the isinstance is redundant, but will show type errors if removed
+                return self.possible.get(other.value, False)
+            for value in self.values:
+                if other.possible.get(value, False):
+                    return True
+            return False
+        if isinstance(other, self.type):
+            if self.is_collapsed:
+                return self.value == other
+            return self.possible.get(other, False)
+        return False
+
     
     def __str__(self) -> str:
         if self.is_collapsed:
@@ -70,12 +90,33 @@ class SuperRange(SuperPosition[int]):
         if self.value is not None:
             self.min = self.value
             self.max = self.value
-    
-    def smaller_than(self, value: int):
-        self.max = min(self.max, value)
 
-    def bigger_than(self, value: int):
-        self.min = max(self.min, value)
+    def __gt__(self, other: SuperRange|int) -> bool:
+        if isinstance(other, SuperRange):
+            return self.max > other.min
+        return self.max > other
+    
+    def __lt__(self, other: SuperRange|int) -> bool:
+        if isinstance(other, SuperRange):
+            return self.min < other.max
+        return self.min < other
+    
+    def __ge__(self, other: SuperRange|int) -> bool:
+        if isinstance(other, SuperRange):
+            return self.max >= other.min
+        return self.max >= other
+    
+    def __le__(self, other: SuperRange|int) -> bool:
+        if isinstance(other, SuperRange):
+            return self.min <= other.max
+        return self.min <= other
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SuperRange):
+            return other.min <= self.max and other.max >= self.min
+        if isinstance(other, int):
+            return other >= self.min and other <= self.max
+        raise Exception(f"Cannot compare SuperRange with {type(other)}")
     
     def __str__(self) -> str:
         if self.is_collapsed:

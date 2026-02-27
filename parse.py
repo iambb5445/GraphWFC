@@ -138,6 +138,7 @@ class Parser:
     @staticmethod
     def parse_for_condition(iter: str, body: str) -> Condition:
         # print(iter, "-", body)
+        Parser.parse_condition(body)
         def cond(u: Node, v: Node):
             return True
         return cond
@@ -153,7 +154,6 @@ class Parser:
             assert to == "to", f"Unrecognizable edge definition for {edge_name}: {var_def}"
             assert from_type in node_names, f"Unrecognizable node type {from_type} in edge definition {edge_name}: {var_def}"
             assert to_type in node_names, f"Unrecognizable node type {to_type} in edge definition {edge_name}: {var_def}"
-            print(edge_name)
             bidirectional = False
             conds: list[Condition] = []
             fors, the_rest = Parser.extract_fors("\n".join(definition.splitlines()[1:]))
