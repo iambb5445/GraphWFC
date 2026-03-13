@@ -162,6 +162,8 @@ class Graph:
     def get_dist(self, edge_name: str, s: Node, e: Node, superpos_allowed: bool) -> int:
         schema = self.edge_schema[edge_name]
         assert schema.from_type == schema.to_type, "Cannot calculate distance when edges are between two different types"
+        if s == e:
+            return 0
         q = [(s, 0)]
         flag = set([s])
         while len(q) > 0:

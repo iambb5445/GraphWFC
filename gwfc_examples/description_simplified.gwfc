@@ -52,7 +52,7 @@ global {
         p.mother.from_degree <= .max_child_per_parent
     }
     for every location l: { l.home.from_degree <= .max_person_in_house }
-    
+    for every person p, person q: { dist("friend", p, q) <= 2 }
 }
 
 probability {

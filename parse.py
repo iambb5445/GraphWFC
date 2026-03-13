@@ -101,7 +101,7 @@ class Parser:
 
     @staticmethod
     def get_node_var(var_type: str, node: Node):
-        return type(var_type, (), node.properties|node.get_degrees())
+        return type(var_type, (), node.properties|node.get_degrees()|{"__id__": node.index})
 
     @staticmethod
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
@@ -129,9 +129,11 @@ class Parser:
     def parse_global_for(iters: str, body: str) -> GraphCondition:
         code, var_names = compile_expr(body)
         iter_list = iters.split(",")
+        if "dist" in var_names: # TODO no hardcoding
+            var_names.remove("dist")
         existing_var_names = [iter.split()[1] for iter in iter_list]
         for var_name in var_names:
-            assert var_name in existing_var_names
+            assert var_name in existing_var_names, f"Unknown variable {var_name}"
         def cond(g: Graph):
             assigns: dict[str, list] = {}
             for iter in iter_list:
@@ -143,7 +145,9 @@ class Parser:
                     raise Exception(f"Unknown variable type {var_type} in for every {iters}")
             values = [assigns[var_name] for var_name in var_names]
             for assignment in product(*values):
-                env = dict(zip(var_names, assignment))
+                env = dict(zip(var_names, assignment))|{
+                    "dist": lambda en, u, v: g.get_dist_range(en, g.nodes[g.edge_schema[en].from_type][u.__id__], g.nodes[g.edge_schema[en].to_type][v.__id__])
+                }
                 if not evaluate_expr(code, env):
                     return False
             return True
