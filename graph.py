@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Callable
 from random import Random
 from superposition import SuperPosition, SuperRange, SuperList
+from cond import Condition
 
 NodeSchema = dict[str, Callable[[], SuperPosition]]
 
@@ -38,7 +39,7 @@ class Node:
         for val in prop.values:
             if prop.possible[val]:
                 self.properties[prop_name].collapse_to(val)
-                if not edge_schema.condition(from_node, to_node):
+                if not edge_schema.condition.check(from_node, to_node):
                     prop.possible[val] = False
                     changed = True
         self.properties[prop_name] = prop
@@ -50,10 +51,10 @@ class Node:
         assert isinstance(prop, SuperRange)
         self.properties[prop_name] = prop.copy()
         valid = False
-        # TODO we can use binary search hear, assuming that range conditions always result in range
+        # TODO we can use binary search here, assuming that range conditions always result in range
         for val in range(prop.min, prop.max+1):
             self.properties[prop_name].collapse_to(val)
-            good = edge_schema.condition(from_node, to_node)
+            good = edge_schema.condition.check(from_node, to_node)
             if valid == False and good:
                 if prop.min != val:
                     changed = True
@@ -83,7 +84,7 @@ class Node:
         return f"Node[{self.index}](\n\t{new_line.join([f'{prop}: {value}' for prop, value in self.properties.items()])}\n)"
 
 class EdgeSchema:
-    def __init__(self, to_type: str, from_type: str, condition: Callable[[Node, Node], bool], bidirectional: bool, loops_allowed: bool, condition_str: str) -> None:
+    def __init__(self, to_type: str, from_type: str, condition: EdgeCondition, bidirectional: bool, loops_allowed: bool, condition_str: str) -> None:
         self.to_type = to_type
         self.from_type = from_type
         self.condition = condition
@@ -108,7 +109,8 @@ class Edge:
 class Graph:
     def __init__(self,
                  node_schema: dict[str, NodeSchema],
-                 edge_schema: dict[str, EdgeSchema]):
+                 edge_schema: dict[str, EdgeSchema],
+                 global_condition: GraphCondition):
         self.nodes: dict[str, list[Node]] = {}
         self.edges: dict[str, dict[Node, set[Node]]] = {}
         for name in node_schema.keys():
@@ -117,6 +119,7 @@ class Graph:
             self.edges[name] = {}
         self.node_schema = node_schema
         self.edge_schema = edge_schema
+        self.global_condition = global_condition
     
     def add_nodes(self, count: int, node_type: str):
         self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type])) for i in range(count)]
@@ -128,7 +131,7 @@ class Graph:
         if u == v: return
         schema = self.edge_schema[edge_name]
         assert u.type == schema.from_type, v.type == schema.to_type
-        if schema.condition(u, v) and rnd.random() < prob:
+        if schema.condition.check(u, v) and self.global_condition.check(self) and rnd.random() < prob:
             self.edges[edge_name][u] = self.edges[edge_name].get(u, set())
             self.edges[edge_name][u].add(v)
     
@@ -173,3 +176,9 @@ class Graph:
     def __str__(self) -> str:
         return "\n".join(["\n".join([f"{name} {node}" for node in nodes]) for name, nodes in self.nodes.items()]) + "\n" + \
             "\n".join(["\n".join([f"{name} {node.index} [{', '.join([str(other.index) for other in others])}]" for node, others in edges.items()]) for name, edges in self.edges.items()])
+    
+class EdgeCondition(Condition[[Node, Node]]):
+    pass
+
+class GraphCondition(Condition[[Graph]]):
+    pass

@@ -1,10 +1,8 @@
 from __future__ import annotations
 import re
 from typing import Callable
-from graph import NodeSchema, EdgeSchema, Graph, Node
+from graph import NodeSchema, EdgeSchema, Graph, Node, EdgeCondition, GraphCondition
 from superposition import SuperList, SuperRange, SuperStr
-
-Condition = Callable[[Node, Node], bool]
 
 class Parser:
     @staticmethod
@@ -100,16 +98,7 @@ class Parser:
         return node_schemas
 
     @staticmethod
-    def merge_conditions(conditions: list[Condition]) -> Condition:
-        def cond(u: Node, v: Node):
-            for condition in conditions:
-                if not condition(u, v):
-                    return False
-            return True
-        return cond
-
-    @staticmethod
-    def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> Condition:
+    def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
         def cond(u: Node, v: Node):
             globals = {}
             globals['min'] = min
@@ -118,16 +107,25 @@ class Parser:
             globals[from_var] = type(from_type, (), u.properties)
             globals[to_var] = type(to_type, (), v.properties)
             return eval(s, globals)
-        return cond
+        return EdgeCondition(cond)
 
     @staticmethod
-    def parse_for_condition(iter: str, body: str) -> Condition:
+    def parse_for(iter: str, body: str) -> EdgeCondition:
         # print(iter, "-", body)
         # Parser.parse_condition(body)
         # TODO
         def cond(u: Node, v: Node):
             return True
-        return cond
+        return EdgeCondition(cond)
+    
+    @staticmethod
+    def parse_global_for(iter: str, body: str) -> GraphCondition:
+        # print(iter, "-", body)
+        # Parser.parse_condition(body)
+        # TODO
+        def cond(g: Graph):
+            return True
+        return GraphCondition(cond)
     
     @staticmethod
     def parse_edges(s: str, node_names: list[str]) -> dict[str, EdgeSchema]:
@@ -142,7 +140,7 @@ class Parser:
             assert to_type in node_names, f"Unrecognizable node type {to_type} in edge definition {edge_name}: {var_def}"
             bidirectional = False
             loops_allowed = False
-            conds: list[Condition] = []
+            conds: list[EdgeCondition] = []
             fors, the_rest = Parser.extract_fors("\n".join(definition.splitlines()[1:]))
             for line in the_rest.splitlines():
                 line = line.strip()
@@ -153,9 +151,18 @@ class Parser:
                 else:
                     conds.append(Parser.parse_condition(line, from_type, to_type, from_var, to_var))
             for iter, body in fors:
-                conds.append(Parser.parse_for_condition(iter, body))
-            edge_schema[edge_name] = EdgeSchema(from_type, to_type, Parser.merge_conditions(conds), bidirectional, loops_allowed, definition)
+                conds.append(Parser.parse_for(iter, body))
+            edge_schema[edge_name] = EdgeSchema(from_type, to_type, EdgeCondition.merge(*conds), bidirectional, loops_allowed, definition)
         return edge_schema
+    
+    @staticmethod
+    def parse_global_condition(s: str) -> GraphCondition:
+        fors, the_rest = Parser.extract_fors(s)
+        assert len(the_rest) == 0, f"Unrecognizable text in edge definitions: {the_rest}"
+        conds: list[GraphCondition] = []
+        for iter, body in fors:
+            conds.append(Parser.parse_global_for(iter, body))
+        return GraphCondition.merge(*conds)
     
     @staticmethod
     def parse(s: str):
@@ -165,7 +172,8 @@ class Parser:
         blocks, s = Parser.extract_blocks(s)
         node_schema = Parser.parse_nodes(blocks["nodes"])
         edge_schema = Parser.parse_edges(blocks["edges"], list(node_schema.keys()))
-        return Graph(node_schema, edge_schema)
+        global_condition = Parser.parse_global_condition(blocks["global"] if "global" in blocks else "")
+        return Graph(node_schema, edge_schema, global_condition)
     
     @staticmethod
     def from_file(file_name: str):
@@ -173,7 +181,7 @@ class Parser:
             return Parser.parse(f.read())
 
 from random import Random
-g = Parser.from_file("smaller.gwfc")
+g = Parser.from_file("small.gwfc")
 g.add_nodes(7, "person")
 g.collapse(Random(42), 0)
 print(g)
