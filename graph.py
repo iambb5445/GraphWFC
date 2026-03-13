@@ -1,18 +1,37 @@
 from __future__ import annotations
 from typing import Callable
+from types import SimpleNamespace
 from random import Random
 from superposition import SuperPosition, SuperRange, SuperList
 from cond import Condition
+from enum import Enum
 
 NodeSchema = dict[str, Callable[[], SuperPosition]]
 
 class Node:
-    def __init__(self, node_type: str, schema: NodeSchema, index: int):
+    def __init__(self, node_type: str, schema: NodeSchema, index: int, graph: Graph):
         self.properties: dict[str, SuperPosition] = {}
         for name, factory in schema.items():
             self.properties[name] = factory()
         self.type = node_type
         self.index = index
+        self.graph = graph
+    
+    def get_degrees(self):
+        degrees: dict[str, SimpleNamespace] = {}
+        for edge_type, schema in self.graph.edge_schema.items():
+            em = self.graph.edge_matrix[edge_type]
+            if schema.from_type == self.type:
+                obj = degrees.setdefault(edge_type, SimpleNamespace())
+                min_degree = len([1 for val in em[self.index] if val == 1])
+                max_degree = len([1 for val in em[self.index] if val != -1])
+                obj.from_degree = SuperRange(min_degree, max_degree)
+            if schema.to_type == self.type:
+                obj = degrees.setdefault(edge_type, SimpleNamespace())
+                min_degree = len([1 for row in em if row[self.index] == 1])
+                max_degree = len([1 for row in em if row[self.index] != -1])
+                obj.to_degree = SuperRange(min_degree, max_degree)
+        return degrees
     
     def is_collapsed(self):
         return all(val.is_collapsed for val in self.properties.values())
@@ -106,6 +125,11 @@ class Edge:
     def get_to(self) -> Node:
         return self.graph.nodes[self.to_type][self.to_index]
 
+class EdgeSuperPosition(Enum):
+    present = 1
+    absent = -1
+    superpos = 0
+
 class Graph:
     def __init__(self,
                  node_schema: dict[str, NodeSchema],
@@ -113,31 +137,44 @@ class Graph:
                  global_condition: GraphCondition):
         self.nodes: dict[str, list[Node]] = {}
         self.edges: dict[str, dict[Node, set[Node]]] = {}
+        self.edge_matrix: dict[str, list[list[EdgeSuperPosition]]] = {}
         for name in node_schema.keys():
             self.nodes[name] = []
         for name in edge_schema.keys():
             self.edges[name] = {}
+            self.edge_matrix[name] = []
         self.node_schema = node_schema
         self.edge_schema = edge_schema
         self.global_condition = global_condition
     
     def add_nodes(self, count: int, node_type: str):
-        self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type])) for i in range(count)]
+        self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type]), self) for i in range(count)]
+        for edge_name, schema in self.edge_schema.items():
+            if schema.from_type == node_type:
+                self.edge_matrix[edge_name] += [[] for _ in range(count)]
+            if schema.to_type == node_type:
+                for row in self.edge_matrix[edge_name]:
+                    row += [EdgeSuperPosition.superpos for _ in range(count)]
     
     def select_node(self, rnd: Random, nodes: list[Node]) -> Node:
         return rnd.choice(nodes)
     
     def consider(self, edge_name: str, u: Node, v: Node, rnd: Random, prob: float):
-        if u == v: return
+        # TODO bidirectional, loop, etc.
+        if u == v:
+            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
+            return
         schema = self.edge_schema[edge_name]
         assert u.type == schema.from_type, v.type == schema.to_type
         if schema.condition.check(u, v) and self.global_condition.check(self) and rnd.random() < prob:
             self.edges[edge_name][u] = self.edges[edge_name].get(u, set())
             self.edges[edge_name][u].add(v)
+            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.present
+        else:
+            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
     
     def collapse_edges(self, node: Node, rnd: Random, prob: float=0.1): # TODO how should I handle probability?
         for edge_name, schema in self.edge_schema.items():
-            # TODO bidirectional, loop, etc.
             if schema.from_type == node.type:
                 for other in self.nodes[schema.to_type]:
                     self.consider(edge_name, node, other, rnd, prob)
