@@ -23,13 +23,13 @@ class Node:
             em = self.graph.edge_matrix[edge_type]
             if schema.from_type == self.type:
                 obj = degrees.setdefault(edge_type, SimpleNamespace())
-                min_degree = len([1 for val in em[self.index] if val == 1])
-                max_degree = len([1 for val in em[self.index] if val != -1])
+                min_degree = len([1 for val in em[self.index] if val == EdgeSuperPosition.present])
+                max_degree = len([1 for val in em[self.index] if val != EdgeSuperPosition.absent])
                 obj.from_degree = SuperRange(min_degree, max_degree)
             if schema.to_type == self.type:
                 obj = degrees.setdefault(edge_type, SimpleNamespace())
-                min_degree = len([1 for row in em if row[self.index] == 1])
-                max_degree = len([1 for row in em if row[self.index] != -1])
+                min_degree = len([1 for row in em if row[self.index] == EdgeSuperPosition.present])
+                max_degree = len([1 for row in em if row[self.index] != EdgeSuperPosition.absent])
                 obj.to_degree = SuperRange(min_degree, max_degree)
         return degrees
     
@@ -162,21 +162,31 @@ class Graph:
     def select_node(self, rnd: Random, nodes: list[Node]) -> Node:
         return rnd.choice(nodes)
     
+    def add_edge(self, edge_name: str, u: Node, v: Node):
+        self.edges[edge_name][u] = self.edges[edge_name].get(u, set())
+        self.edges[edge_name][u].add(v)
+        self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.present
+    
+    def remove_edge(self, edge_name: str, u: Node, v: Node):
+        if u in self.edges[edge_name] and v in self.edges[edge_name][u]:
+            self.edges[edge_name][u].remove(v)
+            if len(self.edges[edge_name][u]) == 0:
+                self.edges[edge_name].pop(u)
+        self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
+    
     def consider(self, edge_name: str, u: Node, v: Node, rnd: Random, prob: float):
+        schema = self.edge_schema[edge_name]
         # TODO bidirectional, loop, etc.
         if u == v:
             self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
             return
-        schema = self.edge_schema[edge_name]
         assert u.type == schema.from_type, v.type == schema.to_type
+        self.add_edge(edge_name, u, v)
         if schema.condition.check(u, v) and self.global_condition.check(self) and rnd.random() < prob:
-            self.edges[edge_name][u] = self.edges[edge_name].get(u, set())
-            self.edges[edge_name][u].add(v)
-            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.present
-        else:
-            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
+            return
+        self.remove_edge(edge_name, u, v)
     
-    def collapse_edges(self, node: Node, rnd: Random, prob: float=0.1): # TODO how should I handle probability?
+    def collapse_edges(self, node: Node, rnd: Random, prob: float=0.5): # TODO how should I handle probability?
         for edge_name, schema in self.edge_schema.items():
             if schema.from_type == node.type:
                 for other in self.nodes[schema.to_type]:
