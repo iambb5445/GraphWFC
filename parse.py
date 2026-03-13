@@ -96,16 +96,26 @@ class Parser:
                 else:
                     raise Exception(f"ERROR: unknown property definition {prop_def}")
         return node_schemas
+    
+    @staticmethod
+    def get_default_globals():
+        # TODO dist, lca
+        return {
+            'min': min,
+            'max': max,
+            'abs': abs,
+        }
+
+    @staticmethod
+    def apply_node_global(var_name, var_type: str, node: Node, globals: dict):
+        globals[var_name] = type(var_type, (), node.properties)
 
     @staticmethod
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
         def cond(u: Node, v: Node):
-            globals = {}
-            globals['min'] = min
-            globals['max'] = max
-            # TODO dist, lca
-            globals[from_var] = type(from_type, (), u.properties)
-            globals[to_var] = type(to_type, (), v.properties)
+            globals = Parser.get_default_globals()
+            Parser.apply_node_global(from_var, from_type, u, globals)
+            Parser.apply_node_global(to_var, to_type, v, globals)
             return eval(s, globals)
         return EdgeCondition(cond)
 
@@ -119,11 +129,17 @@ class Parser:
         return EdgeCondition(cond)
     
     @staticmethod
-    def parse_global_for(iter: str, body: str) -> GraphCondition:
-        # print(iter, "-", body)
-        # Parser.parse_condition(body)
-        # TODO
+    def parse_global_for(iters: str, body: str) -> GraphCondition:
         def cond(g: Graph):
+            iter_list = iters.split(",")
+            assigns: dict[str, list] = {}
+            for iter in iter_list:
+                var_type, var_name = iter.split()
+                assert var_name not in assigns, f"Duplicate variable name {var_name} in for every {iters}"
+                if var_type in g.nodes.keys():
+                    assigns[var_name] = [g.nodes[var_type]]
+                else:
+                    raise Exception(f"Unknown variable type {var_type} in for every {iters}")
             return True
         return GraphCondition(cond)
     
