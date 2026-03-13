@@ -204,7 +204,8 @@ class Parser:
             return Parser.parse(f.read())
 
 from random import Random
-g = Parser.from_file("small.gwfc")
+import os
+g = Parser.from_file(os.path.join("gwfc_examples", "small.gwfc"))
 g.add_nodes(7, "person")
 g.collapse(Random(42), 0)
 print(g)
