@@ -159,6 +159,29 @@ class Graph:
                     row += [EdgeSuperPosition.superpos for _ in range(count)]
         self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type]), self) for i in range(count)]
     
+    def get_dist(self, edge_name: str, s: Node, e: Node, superpos_allowed: bool) -> int:
+        schema = self.edge_schema[edge_name]
+        assert schema.from_type == schema.to_type, "Cannot calculate distance when edges are between two different types"
+        q = [(s, 0)]
+        flag = set([s])
+        while len(q) > 0:
+            u, dist = q.pop(0)
+            nei = list(self.edges[edge_name][u])
+            if superpos_allowed:
+                for i in range(len(self.nodes[schema.to_type])):
+                    if self.edge_matrix[edge_name][u.index][i] == EdgeSuperPosition.superpos:
+                        nei.append(self.nodes[schema.to_type][i])
+            for v in nei:
+                if v not in flag:
+                    q.append((v, dist+1))
+                    flag.add(v)
+                    if v == e:
+                        return dist+1
+        return len(self.nodes[schema.from_type] * 10) # inf, but integer
+    
+    def get_dist_range(self, edge_name: str, s: Node, e: Node):
+        return SuperRange(self.get_dist(edge_name, s, e, True), self.get_dist(edge_name, s, e, False))
+    
     def select_node(self, rnd: Random, nodes: list[Node]) -> Node:
         return rnd.choice(nodes)
     
@@ -173,20 +196,35 @@ class Graph:
             if len(self.edges[edge_name][u]) == 0:
                 self.edges[edge_name].pop(u)
         self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
+
+    def superpos_edge(self, edge_name: str, u: Node, v: Node):
+        self.remove_edge(edge_name, u, v)
+        self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.superpos
     
     def consider(self, edge_name: str, u: Node, v: Node, rnd: Random, prob: float):
         schema = self.edge_schema[edge_name]
+        assert u.type == schema.from_type, v.type == schema.to_type
         # TODO bidirectional, loop, etc.
         if u == v:
-            self.edge_matrix[edge_name][u.index][v.index] = EdgeSuperPosition.absent
+            self.remove_edge(edge_name, u, v)
             return
-        assert u.type == schema.from_type, v.type == schema.to_type
         self.add_edge(edge_name, u, v)
-        if schema.condition.check(u, v) and self.global_condition.check(self) and rnd.random() < prob:
-            return
+        is_valid_to_add = schema.condition.check(u, v) and self.global_condition.check(self)
         self.remove_edge(edge_name, u, v)
+        is_valid_to_remove = self.global_condition.check(self)
+        if is_valid_to_add and is_valid_to_remove:
+            if rnd.random() < prob:
+                self.add_edge(edge_name, u, v)
+        elif is_valid_to_add:
+            self.add_edge(edge_name, u, v)
+        elif is_valid_to_remove:
+            pass
+        else:
+            self.superpos_edge(edge_name, u, v)
+            print(f"Warning: contradiction - can neither add nor remove the edge {edge_name} between " +
+                  f"{u.type} {u.index} to {v.type} {v.index}")
     
-    def collapse_edges(self, node: Node, rnd: Random, prob: float=0.5): # TODO how should I handle probability?
+    def collapse_edges(self, node: Node, rnd: Random, prob: float=0.4): # TODO how should I handle probability?
         for edge_name, schema in self.edge_schema.items():
             if schema.from_type == node.type:
                 for other in self.nodes[schema.to_type]:
