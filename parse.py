@@ -3,6 +3,8 @@ import re
 from typing import Callable
 from graph import NodeSchema, EdgeSchema, Graph, Node, EdgeCondition, GraphCondition
 from superposition import SuperList, SuperRange, SuperStr
+from expr_eval import evaluate_expr, compile_expr
+from itertools import product
 
 class Parser:
     @staticmethod
@@ -96,27 +98,22 @@ class Parser:
                 else:
                     raise Exception(f"ERROR: unknown property definition {prop_def}")
         return node_schemas
-    
-    @staticmethod
-    def get_default_globals():
-        # TODO dist, lca
-        return {
-            'min': min,
-            'max': max,
-            'abs': abs,
-        }
 
     @staticmethod
-    def apply_node_global(var_name, var_type: str, node: Node, globals: dict):
-        globals[var_name] = type(var_type, (), node.properties)
+    def get_node_var(var_type: str, node: Node):
+        return type(var_type, (), node.properties)
 
     @staticmethod
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
+        code, var_names = compile_expr(s)
+        for var_name in var_names:
+            assert var_name == from_var or var_name == to_var
         def cond(u: Node, v: Node):
-            globals = Parser.get_default_globals()
-            Parser.apply_node_global(from_var, from_type, u, globals)
-            Parser.apply_node_global(to_var, to_type, v, globals)
-            return eval(s, globals)
+            env = {
+                from_var: Parser.get_node_var(from_type, u),
+                to_var: Parser.get_node_var(to_type, v),
+            }
+            return evaluate_expr(code, env)
         return EdgeCondition(cond)
 
     @staticmethod
@@ -130,16 +127,25 @@ class Parser:
     
     @staticmethod
     def parse_global_for(iters: str, body: str) -> GraphCondition:
+        code, var_names = compile_expr(body)
+        iter_list = iters.split(",")
+        existing_var_names = [iter.split()[1] for iter in iter_list]
+        for var_name in var_names:
+            assert var_name in existing_var_names
         def cond(g: Graph):
-            iter_list = iters.split(",")
             assigns: dict[str, list] = {}
             for iter in iter_list:
                 var_type, var_name = iter.split()
                 assert var_name not in assigns, f"Duplicate variable name {var_name} in for every {iters}"
                 if var_type in g.nodes.keys():
-                    assigns[var_name] = [g.nodes[var_type]]
+                    assigns[var_name] = [Parser.get_node_var(var_type, node) for node in g.nodes[var_type]]
                 else:
                     raise Exception(f"Unknown variable type {var_type} in for every {iters}")
+            values = [assigns[var_name] for var_name in var_names]
+            for assignment in product(*values):
+                env = dict(zip(var_names, assignment))
+                if not evaluate_expr(code, env):
+                    return False
             return True
         return GraphCondition(cond)
     
@@ -177,7 +183,8 @@ class Parser:
         assert len(the_rest) == 0, f"Unrecognizable text in edge definitions: {the_rest}"
         conds: list[GraphCondition] = []
         for iter, body in fors:
-            conds.append(Parser.parse_global_for(iter, body))
+            for line in body.splitlines():
+                conds.append(Parser.parse_global_for(iter, line.strip()))
         return GraphCondition.merge(*conds)
     
     @staticmethod
