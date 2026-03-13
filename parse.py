@@ -101,7 +101,7 @@ class Parser:
 
     @staticmethod
     def get_node_var(var_type: str, node: Node):
-        return type(var_type, (), node.properties)
+        return type(var_type, (), node.properties|node.get_degrees())
 
     @staticmethod
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
@@ -208,3 +208,7 @@ g = Parser.from_file("small.gwfc")
 g.add_nodes(7, "person")
 g.collapse(Random(42), 0)
 print(g)
+for edge_name in g.edge_matrix:
+    print(edge_name)
+    for row in g.edge_matrix[edge_name]:
+        print([val.value for val in row])
