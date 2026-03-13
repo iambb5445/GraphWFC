@@ -1,0 +1,65 @@
+.max_age 100
+.min_parent_age_diff 18
+.max_parent_age_diff 40
+.parent_lca_dist 4
+.max_person_in_house 6
+.max_child_per_parent 6
+
+nodes {
+    person {
+        name <str>
+        gender [male, female]
+        age (0, .max_age)
+        hair_color [brown, red, black, blonde]
+        eye_color [brown, blue, green]
+    }
+    location {
+        name <str>
+    }
+}
+
+edges {
+    father {
+        person f to person x
+        f.gender == 'male'
+        f.age > x.age + .min_parent_age_diff
+        f.age < x.age + .max_parent_age_diff
+    }
+    mother {
+        person m to person x
+        m.gender == 'female'
+        m.age > x.age + .min_parent_age_diff
+        m.age < x.age + .max_parent_age_diff
+    }
+    friend {
+        person x to person y
+    }
+    home {
+        location x to person y
+    }
+    work {
+        location x to person y
+    }
+}
+
+global {
+    for every person p: {
+        p.home.to_degree == 1
+        p.work.to_degree <= 1
+        p.father.to_degree <= 1
+        p.mother.to_degree <= 1
+        p.father.from_degree <= .max_child_per_parent
+        p.mother.from_degree <= .max_child_per_parent
+    }
+    for every location l: { l.home.from_degree <= .max_person_in_house }
+    
+}
+
+probability {
+    for every person p, hair_color h: {
+        p.hair_color.prob[h] = (avg(father.to.p.hair_color.prob[h]) + avg(mother.to.p.hair_color.prob[h])) / 2
+    }
+    for every person p, eye_color e: {
+        p.eye_color.prob[e] = (avg(father.to.p.eye_color.prob[e]) + avg(mother.to.p.eye_color.prob[e])) / 2
+    }
+}

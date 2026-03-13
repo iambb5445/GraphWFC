@@ -103,9 +103,9 @@ class Node:
         return f"Node[{self.index}](\n\t{new_line.join([f'{prop}: {value}' for prop, value in self.properties.items()])}\n)"
 
 class EdgeSchema:
-    def __init__(self, to_type: str, from_type: str, condition: EdgeCondition, bidirectional: bool, loops_allowed: bool, condition_str: str) -> None:
-        self.to_type = to_type
+    def __init__(self, from_type: str, to_type: str, condition: EdgeCondition, bidirectional: bool, loops_allowed: bool, condition_str: str) -> None:
         self.from_type = from_type
+        self.to_type = to_type
         self.condition = condition
         self.bidirectional = bidirectional
         self.loops_allowed = loops_allowed
@@ -126,9 +126,9 @@ class Edge:
         return self.graph.nodes[self.to_type][self.to_index]
 
 class EdgeSuperPosition(Enum):
-    present = 1
-    absent = -1
-    superpos = 0
+    present = 2
+    absent = 0
+    superpos = 1
 
 class Graph:
     def __init__(self,
@@ -148,13 +148,16 @@ class Graph:
         self.global_condition = global_condition
     
     def add_nodes(self, count: int, node_type: str):
-        self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type]), self) for i in range(count)]
         for edge_name, schema in self.edge_schema.items():
             if schema.from_type == node_type:
-                self.edge_matrix[edge_name] += [[] for _ in range(count)]
+                self.edge_matrix[edge_name] += [
+                    [EdgeSuperPosition.superpos
+                     for _ in range(len(self.nodes[schema.to_type]))
+                     ] for _ in range(count)]
             if schema.to_type == node_type:
                 for row in self.edge_matrix[edge_name]:
                     row += [EdgeSuperPosition.superpos for _ in range(count)]
+        self.nodes[node_type] += [Node(node_type, self.node_schema[node_type], i+len(self.nodes[node_type]), self) for i in range(count)]
     
     def select_node(self, rnd: Random, nodes: list[Node]) -> Node:
         return rnd.choice(nodes)

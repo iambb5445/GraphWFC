@@ -107,7 +107,7 @@ class Parser:
     def parse_condition(s: str, from_type: str, to_type: str, from_var: str, to_var: str) -> EdgeCondition:
         code, var_names = compile_expr(s)
         for var_name in var_names:
-            assert var_name == from_var or var_name == to_var
+            assert var_name == from_var or var_name == to_var, f"Unknown variable {var_name} used in expression {s}"
         def cond(u: Node, v: Node):
             env = {
                 from_var: Parser.get_node_var(from_type, u),
@@ -205,8 +205,9 @@ class Parser:
 
 from random import Random
 import os
-g = Parser.from_file(os.path.join("gwfc_examples", "small.gwfc"))
+g = Parser.from_file(os.path.join("gwfc_examples", "description_simplified.gwfc"))
 g.add_nodes(7, "person")
+g.add_nodes(4, "location")
 g.collapse(Random(42), 0)
 print(g)
 for edge_name in g.edge_matrix:
