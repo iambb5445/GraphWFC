@@ -24,14 +24,12 @@ edges {
         f.gender == 'male'
         f.age > x.age + .min_parent_age_diff
         f.age < x.age + .max_parent_age_diff
-        for every mother.to.x m: { min(dist(lca(m, f), f), dist(lca(m, f), m)) > .parent_lca_dist }
     }
     mother {
         person m to person x
         m.gender == 'female'
         m.age > x.age + .min_parent_age_diff
         m.age < x.age + .max_parent_age_diff
-        for every father.to.x f: { min(dist(lca(m, f), f), dist(lca(m, f), m)) > .parent_lca_dist }
     }
     friend {
         person x to person y
@@ -47,14 +45,15 @@ edges {
 
 global {
     for every person p: {
-        home.to.p.degree == 1
-        work.to.p.degree <= 1
-        father.to.p.degree <= 1
-        mother.to.p.degree <= 1
-        father.from.p.degree <= .max_child_per_parent
-        mother.from.p.degree <= .max_child_per_parent
+        p.home.to_degree == 1
+        p.work.to_degree <= 1
+        p.father.to_degree <= 1
+        p.mother.to_degree <= 1
+        p.father.from_degree <= .max_child_per_parent
+        p.mother.from_degree <= .max_child_per_parent
     }
-    for every location l: { home.from.l.degree <= .max_person_in_house }
+    for every location l: { l.home.from_degree <= .max_person_in_house }
+    for every person p, mother.to.p m, father.to.p f: { min(dist(lca(m, f), f), dist(lca(m, f), m)) > .parent_lca_dist }
 }
 
 probability {
