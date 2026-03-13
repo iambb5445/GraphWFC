@@ -166,7 +166,7 @@ class Graph:
         flag = set([s])
         while len(q) > 0:
             u, dist = q.pop(0)
-            nei = list(self.edges[edge_name][u])
+            nei = list(self.edges[edge_name].get(u, []))
             if superpos_allowed:
                 for i in range(len(self.nodes[schema.to_type])):
                     if self.edge_matrix[edge_name][u.index][i] == EdgeSuperPosition.superpos:

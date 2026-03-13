@@ -214,3 +214,4 @@ for edge_name in g.edge_matrix:
     print(edge_name)
     for row in g.edge_matrix[edge_name]:
         print([val.value for val in row])
+print(g.get_dist_range("friend", g.nodes["person"][0], g.nodes["person"][1]))
